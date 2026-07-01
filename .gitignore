@@ -1,0 +1,38 @@
+# API Keys & Secrets
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+venv/
+ENV/
+
+# Java / Maven (fingerprint-auth-server)
+target/
+*.jar
+*.class
+*.war
+
+# Kotlin / Android
+local.properties
+*.iml
+.gradle/
+build/
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+
+# Generated files
+generated_presentations/
+*.pptx
+latest_presentation.pptx
+*.sqlite
+
+# OS
+.DS_Store
+Thumbs.db
