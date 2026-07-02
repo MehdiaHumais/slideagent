@@ -39,9 +39,15 @@ def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
                 email TEXT UNIQUE NOT NULL,
-                password_hash TEXT NOT NULL
+                password_hash TEXT NOT NULL,
+                backup_email TEXT
             )
         ''')
+        # Add backup_email column if upgrading old table
+        try:
+            cursor.execute("ALTER TABLE users ADD COLUMN backup_email TEXT")
+        except:
+            pass
         conn.commit()
 
 init_db()
@@ -169,7 +175,7 @@ def login():
     try:
         with sqlite3.connect(DB_PATH) as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT id, name, email, password_hash FROM users WHERE email = ?", (email,))
+            cursor.execute("SELECT id, name, email, password_hash FROM users WHERE email = ? OR backup_email = ?", (email, email))
             user = cursor.fetchone()
             
             if not user:
@@ -306,12 +312,12 @@ def fingerprint_set_password():
                 return jsonify({"success": False, "error": "This email is already used by another account."}), 400
 
             new_hash = generate_password_hash(new_password)
-            cursor.execute("UPDATE users SET email = ?, password_hash = ? WHERE id = ?",
+            cursor.execute("UPDATE users SET backup_email = ?, password_hash = ? WHERE id = ?",
                           (new_email, new_hash, session['user_id']))
             conn.commit()
 
             # Update the session too
-            session['user_email'] = new_email
+            session['user_backup_email'] = new_email
             session['is_fingerprint'] = False
 
             return jsonify({"success": True, "message": "Backup password created! You can now login with email."})
