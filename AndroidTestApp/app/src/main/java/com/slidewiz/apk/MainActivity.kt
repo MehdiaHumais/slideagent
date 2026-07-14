@@ -1,5 +1,6 @@
 package com.slidewiz.apk
 
+import android.os.Build
 import android.os.Bundle
 import android.webkit.WebChromeClient
 import android.webkit.WebView
@@ -35,6 +36,49 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onBackPressed() {
-        if (webView.canGoBack()) webView.goBack() else super.onBackPressed()
+        if (webView.canGoBack()) {
+            webView.goBack()
+            return
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+            webView.evaluateJavascript(
+                "(function() { " +
+                "  var o = document.getElementById('loading-state'); " +
+                "  var s = document.getElementById('success-state'); " +
+                "  var e = document.getElementById('error-state'); " +
+                "  if (o && !o.classList.contains('hidden')) return 'loading'; " +
+                "  if (s && !s.classList.contains('hidden')) return 'success'; " +
+                "  if (e && !e.classList.contains('hidden')) return 'error'; " +
+                "  return 'form'; " +
+                "})()"
+            ) { result ->
+                val state = result?.replace("\"", "") ?: "form"
+                when (state) {
+                    "loading", "success", "error" -> {
+                        // Back to generator form
+                        webView.evaluateJavascript(
+                            "(function() { " +
+                            "  var f = document.getElementById('generator-form'); " +
+                            "  var o = document.getElementById('loading-state'); " +
+                            "  var s = document.getElementById('success-state'); " +
+                            "  var e = document.getElementById('error-state'); " +
+                            "  if (f) f.classList.remove('hidden'); " +
+                            "  if (o) o.classList.add('hidden'); " +
+                            "  if (s) s.classList.add('hidden'); " +
+                            "  if (e) e.classList.add('hidden'); " +
+                            "})()",
+                            null
+                        )
+                    }
+                    else -> {
+                        // On form, login, or settings — close app
+                        super.onBackPressed()
+                    }
+                }
+            }
+        } else {
+            super.onBackPressed()
+        }
     }
 }
