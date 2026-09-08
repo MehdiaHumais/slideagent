@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, send_file, jsonify, session, redirect
+from flask import Flask, render_template, request, send_file, jsonify, session, redirect, url_for
 from flask_cors import CORS
 import os
 import re
@@ -7,8 +7,14 @@ import docx
 import threading
 import uuid
 import sqlite3
+import requests
+import secrets
+import datetime
+from dotenv import load_dotenv
 from werkzeug.security import generate_password_hash, check_password_hash
 from slides_agent import generate_slide_content, create_presentation, validate_slide_content, THEMES
+
+load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'slidewiz-super-secret-key-change-me')
@@ -48,6 +54,17 @@ def init_db():
             cursor.execute("ALTER TABLE users ADD COLUMN backup_email TEXT")
         except:
             pass
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                token TEXT NOT NULL UNIQUE,
+                expires_at TEXT NOT NULL,
+                used INTEGER DEFAULT 0,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id)
+            )
+        ''')
         conn.commit()
 
 init_db()
@@ -254,6 +271,144 @@ def auth_fingerprint():
                 return jsonify({"success": True, "message": "Fingerprint login successful!", "user": {"name": user[1], "email": user[2], "is_fingerprint": True}})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/forgot-password', methods=['POST'])
+def forgot_password():
+    data = request.json or {}
+    email = data.get('email', '').strip().lower()
+
+    if not email:
+        return jsonify({"success": False, "error": "Email is required."}), 400
+
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM users WHERE email = ? OR backup_email = ?", (email, email))
+            user = cursor.fetchone()
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+    # To avoid revealing which emails are registered, respond the same way whether
+    # the account exists or not. Only send an email if the account exists.
+    if not user:
+        return jsonify({"success": True, "message": "If an account exists for this email, a password reset link has been sent."})
+
+    user_id = user[0]
+
+    # Invalidate any previous unused tokens for this user
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM password_reset_tokens WHERE user_id = ? AND used = 0", (user_id,))
+            conn.commit()
+    except Exception:
+        pass
+
+    token = secrets.token_urlsafe(48)
+
+    expires_at = (datetime.datetime.utcnow() + datetime.timedelta(minutes=30)).isoformat()
+
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES (?, ?, ?)",
+                           (user_id, token, expires_at))
+            conn.commit()
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+    reset_url = url_for('reset_password_page', token=token, _external=True).replace('http://', 'https://')
+    
+    # Allow overriding the base URL via APP_URL for proper links on the live server
+    app_url = os.environ.get('APP_URL', '').strip().rstrip('/')
+    if app_url:
+        reset_url = f"{app_url}/reset-password/{token}"
+
+    try:
+        send_reset_email(email, reset_url)
+    except Exception as e:
+        print(f"[!] Failed to send reset email: {e}")
+        return jsonify({"success": False, "error": f"Failed to send email: {str(e)}"}), 500
+
+    return jsonify({"success": True, "message": "Password reset link sent to your email."})
+
+
+@app.route('/reset-password/<token>')
+def reset_password_page(token):
+    return render_template('reset_password.html', token=token)
+
+
+@app.route('/api/reset-password', methods=['POST'])
+def reset_password():
+    data = request.json or {}
+    token = data.get('token', '').strip()
+    new_password = data.get('new_password', '')
+
+    if not token or not new_password:
+        return jsonify({"success": False, "error": "Token and new password are required."}), 400
+    if len(new_password) < 6:
+        return jsonify({"success": False, "error": "Password must be at least 6 characters."}), 400
+
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id, user_id, expires_at, used FROM password_reset_tokens WHERE token = ?", (token,))
+            row = cursor.fetchone()
+            if not row:
+                return jsonify({"success": False, "error": "Invalid reset link."}), 400
+            if row[3]:
+                return jsonify({"success": False, "error": "This reset link has already been used."}), 400
+
+            expires_at = datetime.datetime.fromisoformat(row[2])
+            if datetime.datetime.utcnow() > expires_at:
+                return jsonify({"success": False, "error": "This reset link has expired. Please request a new one."}), 400
+
+            user_id = row[1]
+
+            new_hash = generate_password_hash(new_password)
+            cursor.execute("UPDATE users SET password_hash = ? WHERE id = ?", (new_hash, user_id))
+
+            # Mark token as used and invalidate any other pending tokens for the user
+            cursor.execute("UPDATE password_reset_tokens SET used = 1 WHERE id = ?", (row[0],))
+            cursor.execute("DELETE FROM password_reset_tokens WHERE user_id = ? AND used = 0", (user_id,))
+
+            conn.commit()
+            return jsonify({"success": True, "message": "Password has been reset successfully. You can now login."})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+def send_reset_email(to_email, reset_url):
+    api_key = os.environ.get('RESEND_API_KEY', '')
+    from_email = os.environ.get('FROM_EMAIL', 'noreply@britsyncai.com')
+
+    if not api_key:
+        raise RuntimeError("RESEND_API_KEY is not configured. Set it in the .env file.")
+
+    subject = "Reset your SlideWiz password"
+    body = f"""Hello,
+
+We received a request to reset your SlideWiz password.
+
+Click the link below to choose a new password. This link is valid for 30 minutes:
+
+{reset_url}
+
+If you did not request this, you can safely ignore this email. Your password will not change.
+
+Thanks,
+SlideWiz Team
+"""
+
+    resp = requests.post(
+        "https://api.resend.com/emails",
+        headers={"Authorization": f"Bearer {api_key}"},
+        json={"from": from_email, "to": to_email, "subject": subject, "text": body},
+        timeout=30,
+    )
+    if resp.status_code >= 400:
+        raise RuntimeError(f"Resend API error: {resp.status_code} {resp.text}")
+
 
 @app.route('/api/change-password', methods=['POST'])
 def change_password():

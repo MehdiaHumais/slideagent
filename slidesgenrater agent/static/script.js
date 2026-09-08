@@ -6,6 +6,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     const loginSection      = document.getElementById("login-section");
     const signupSection     = document.getElementById("signup-section");
     const settingsSection   = document.getElementById("settings-section");
+    const forgotPasswordSection = document.getElementById("forgot-password-section");
     const mainHeader        = document.getElementById("main-header");
     const generatorForm     = document.getElementById("generator-form");
 
@@ -53,6 +54,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         if (loginSection)   loginSection.classList.add("hidden");
         if (signupSection)  signupSection.classList.add("hidden");
         if (settingsSection) settingsSection.classList.add("hidden");
+        if (forgotPasswordSection) forgotPasswordSection.classList.add("hidden");
 
         // Show main app
         mainHeader.classList.remove("hidden");
@@ -70,6 +72,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         if (loginSection)   loginSection.classList.remove("hidden");
         if (signupSection)  signupSection.classList.add("hidden");
         if (settingsSection) settingsSection.classList.add("hidden");
+        if (forgotPasswordSection) forgotPasswordSection.classList.add("hidden");
         mainHeader.classList.add("hidden");
         generatorForm.classList.add("hidden");
     }
@@ -78,6 +81,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         if (loginSection)   loginSection.classList.add("hidden");
         if (signupSection)  signupSection.classList.remove("hidden");
         if (settingsSection) settingsSection.classList.add("hidden");
+        if (forgotPasswordSection) forgotPasswordSection.classList.add("hidden");
         mainHeader.classList.add("hidden");
         generatorForm.classList.add("hidden");
     }
@@ -85,6 +89,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     function showSettings(user) {
         if (loginSection)   loginSection.classList.add("hidden");
         if (signupSection)  signupSection.classList.add("hidden");
+        if (forgotPasswordSection) forgotPasswordSection.classList.add("hidden");
         settingsSection.classList.remove("hidden");
         mainHeader.classList.add("hidden");
         generatorForm.classList.add("hidden");
@@ -130,6 +135,75 @@ document.addEventListener("DOMContentLoaded", async () => {
         switchToLogin.addEventListener("click", (e) => {
             e.preventDefault();
             showLogin();
+        });
+    }
+
+    // =============================================
+    // --- FORGOT PASSWORD ---
+    // =============================================
+    const forgotPasswordLink  = document.getElementById("forgot-password-link");
+    const backToLoginBtn      = document.getElementById("back-to-login");
+    const forgotPasswordForm  = document.getElementById("forgot-password-form");
+
+    function showForgotPassword() {
+        if (loginSection)          loginSection.classList.add("hidden");
+        if (signupSection)         signupSection.classList.add("hidden");
+        if (settingsSection)       settingsSection.classList.add("hidden");
+        if (forgotPasswordSection) forgotPasswordSection.classList.remove("hidden");
+        mainHeader.classList.add("hidden");
+        generatorForm.classList.add("hidden");
+    }
+
+    if (forgotPasswordLink) {
+        forgotPasswordLink.addEventListener("click", (e) => {
+            e.preventDefault();
+            showForgotPassword();
+        });
+    }
+    if (backToLoginBtn) {
+        backToLoginBtn.addEventListener("click", (e) => {
+            e.preventDefault();
+            showLogin();
+        });
+    }
+
+    if (forgotPasswordForm) {
+        forgotPasswordForm.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const email = document.getElementById("forgot-email").value.trim();
+            const btn   = forgotPasswordForm.querySelector("button[type='submit']");
+            const original = btn.innerHTML;
+
+            btn.innerHTML = '<span class="btn-text">Sending...</span>';
+            btn.disabled  = true;
+
+            try {
+                const res    = await fetch('/api/forgot-password', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email })
+                });
+                const result = await res.json();
+                if (result.success) {
+                    btn.innerHTML = '<span class="btn-text">✓ Link Sent</span>';
+                    btn.disabled  = true;
+                    forgotPasswordForm.querySelectorAll("input").forEach(i => i.disabled = true);
+                    // Show a permanent success notice
+                    const msg = document.createElement("p");
+                    msg.className = "form-feedback success-msg";
+                    msg.innerText = "If an account exists for that email, a reset link has been sent. Check your inbox.";
+                    msg.style.cssText = "color: #10B981; font-weight:600; text-align:center; margin-top:14px; animation: fadeIn 0.3s ease;";
+                    forgotPasswordForm.appendChild(msg);
+                } else {
+                    showError(forgotPasswordForm, result.error || "Failed to send reset link.");
+                    btn.innerHTML = original;
+                    btn.disabled  = false;
+                }
+            } catch (err) {
+                showError(forgotPasswordForm, "Network error. Please try again.");
+                btn.innerHTML = original;
+                btn.disabled  = false;
+            }
         });
     }
 
@@ -613,7 +687,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                     if (statData.status === "error") throw new Error(statData.error);
                     if (statData.status === "done") {
                         clearInterval(msgInterval);
-                        downloadBtn.href = statData.download_url;
+                        pendingDownloadUrl = statData.download_url;
                         showState(successState);
                         break;
                     }
@@ -659,6 +733,35 @@ document.addEventListener("DOMContentLoaded", async () => {
     document.addEventListener("click", () => {
         document.querySelectorAll(".custom-select").forEach(s => s.classList.remove("active"));
     });
+
+    // --- Password visibility toggles (eye icon) ---
+    document.addEventListener("click", (e) => {
+        const toggle = e.target.closest(".password-toggle");
+        if (!toggle) return;
+        const input = toggle.parentElement.querySelector("input[type='password'], input[type='text']");
+        if (!input) return;
+        const show = input.type === "password";
+        input.type = show ? "text" : "password";
+        const icon = toggle.querySelector("i");
+        if (icon) icon.className = show ? "ph ph-eye-slash" : "ph ph-eye";
+    });
+
+    // Download: use native DownloadManager via AndroidBridge, or full URL fallback
+    let pendingDownloadUrl = null;
+    if (downloadBtn) {
+        downloadBtn.addEventListener("click", () => {
+            if (!pendingDownloadUrl) return;
+            const base = (window.getServerBase && window.getServerBase()) || window.location.origin;
+            const absoluteUrl = pendingDownloadUrl.startsWith('http')
+                ? pendingDownloadUrl
+                : base + (pendingDownloadUrl.startsWith('/') ? '' : '/') + pendingDownloadUrl;
+            if (window.AndroidBridge && window.AndroidBridge.downloadFile) {
+                window.AndroidBridge.downloadFile(absoluteUrl);
+            } else {
+                window.location.href = absoluteUrl;
+            }
+        });
+    }
 
     if (resetBtn) resetBtn.addEventListener("click", () => showState(form));
     if (retryBtn) retryBtn.addEventListener("click", () => showState(form));

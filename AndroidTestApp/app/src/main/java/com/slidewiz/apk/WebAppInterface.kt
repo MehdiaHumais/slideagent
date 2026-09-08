@@ -1,11 +1,16 @@
 package com.slidewiz.apk
 
+import android.app.DownloadManager
+import android.content.Context
+import android.net.Uri
 import android.os.Build
+import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
@@ -25,6 +30,30 @@ class WebAppInterface(
     @JavascriptInterface
     fun startFingerprint() {
         handler.post { triggerBiometric() }
+    }
+
+    @JavascriptInterface
+    fun downloadFile(url: String) {
+        handler.post {
+            try {
+                Log.d(TAG, "Download requested: $url")
+                val filename = url.substringAfterLast("/").ifEmpty { "presentation.pptx" }
+                val request = DownloadManager.Request(Uri.parse(url))
+                    .setMimeType("application/vnd.openxmlformats-officedocument.presentationml.presentation")
+                    .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                    .setTitle("SlideWiz Presentation")
+                    .setDescription("Downloading $filename")
+                    .setAllowedOverMetered(true)
+                    .setAllowedOverRoaming(true)
+                    .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, filename)
+                val manager = activity.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+                manager.enqueue(request)
+                Toast.makeText(activity, "Downloading $filename", Toast.LENGTH_LONG).show()
+            } catch (e: Exception) {
+                Log.e(TAG, "Download failed: ${e.message}")
+                Toast.makeText(activity, "Download failed: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        }
     }
 
     private fun triggerBiometric() {
