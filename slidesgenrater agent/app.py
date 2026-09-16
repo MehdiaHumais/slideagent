@@ -325,6 +325,9 @@ def forgot_password():
     # Allow overriding the base URL via APP_URL for proper links on the live server
     app_url = os.environ.get('APP_URL', '').strip().rstrip('/')
     if app_url:
+        # Strip a trailing /reset-password if someone set APP_URL to the full reset URL.
+        if app_url.endswith('/reset-password'):
+            app_url = app_url[:-len('/reset-password')]
         reset_url = f"{app_url}/reset-password/{token}"
 
     try:
