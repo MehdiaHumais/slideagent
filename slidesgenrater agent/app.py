@@ -10,6 +10,9 @@ import sqlite3
 import requests
 import secrets
 import datetime
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from dotenv import load_dotenv
 from werkzeug.security import generate_password_hash, check_password_hash
 from slides_agent import generate_slide_content, create_presentation, validate_slide_content, THEMES
@@ -379,11 +382,14 @@ def reset_password():
 
 
 def send_reset_email(to_email, reset_url):
-    api_key = os.environ.get('RESEND_API_KEY', '')
-    from_email = os.environ.get('FROM_EMAIL', 'noreply@britsyncai.com')
+    smtp_host = os.environ.get('SMTP_HOST', '')
+    smtp_port = int(os.environ.get('SMTP_PORT', 587))
+    smtp_username = os.environ.get('SMTP_USERNAME', '')
+    smtp_password = os.environ.get('SMTP_PASSWORD', '')
+    from_email = os.environ.get('FROM_EMAIL', smtp_username)
 
-    if not api_key:
-        raise RuntimeError("RESEND_API_KEY is not configured. Set it in the .env file.")
+    if not smtp_username or not smtp_password or not smtp_host:
+        raise RuntimeError("SMTP_HOST/SMTP_USERNAME/SMTP_PASSWORD are not configured. Set them in the .env file.")
 
     subject = "Reset your SlideWiz password"
     body = f"""Hello,
@@ -400,14 +406,18 @@ Thanks,
 SlideWiz Team
 """
 
-    resp = requests.post(
-        "https://api.resend.com/emails",
-        headers={"Authorization": f"Bearer {api_key}"},
-        json={"from": from_email, "to": to_email, "subject": subject, "text": body},
-        timeout=30,
-    )
-    if resp.status_code >= 400:
-        raise RuntimeError(f"Resend API error: {resp.status_code} {resp.text}")
+    msg = MIMEMultipart('alternative')
+    msg['Subject'] = subject
+    msg['From'] = from_email
+    msg['To'] = to_email
+    msg.attach(MIMEText(body, 'plain'))
+
+    with smtplib.SMTP(smtp_host, smtp_port, timeout=30) as server:
+        server.ehlo()
+        server.starttls()
+        server.ehlo()
+        server.login(smtp_username, smtp_password)
+        server.sendmail(from_email, [to_email], msg.as_string())
 
 
 @app.route('/api/change-password', methods=['POST'])

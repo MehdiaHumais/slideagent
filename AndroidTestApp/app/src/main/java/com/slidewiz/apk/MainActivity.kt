@@ -95,7 +95,7 @@ class MainActivity : AppCompatActivity() {
 
         bridge = WebAppInterface(this, webView)
         webView.addJavascriptInterface(bridge, "AndroidBridge")
-        webView.loadUrl("https://slides.britsyncai.com")
+        webView.loadUrl("https://slide.britsyncai.com")
 
         setContentView(webView)
     }

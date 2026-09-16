@@ -36,3 +36,6 @@ latest_presentation.pptx
 # OS
 .DS_Store
 Thumbs.db
+
+# APK signing metadata
+*.idsig

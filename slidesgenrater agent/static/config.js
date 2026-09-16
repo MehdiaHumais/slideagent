@@ -1,4 +1,4 @@
 window.SLIDEWIZ_CONFIG = {
-  API_URL: "https://slides.britsyncai.com",
+  API_URL: "https://slide.britsyncai.com",
   ENV: "production"
 };
