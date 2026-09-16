@@ -307,7 +307,7 @@ def forgot_password():
     except Exception:
         pass
 
-    token = secrets.token_urlsafe(48)
+    token = secrets.token_urlsafe(20)
 
     expires_at = (datetime.datetime.utcnow() + datetime.timedelta(minutes=30)).isoformat()
 
@@ -345,6 +345,7 @@ def reset_password_page(token):
 def reset_password():
     data = request.json or {}
     token = data.get('token', '').strip()
+    token = token.replace('\r', '').replace('\n', '').replace(' ', '')
     new_password = data.get('new_password', '')
 
     if not token or not new_password:
